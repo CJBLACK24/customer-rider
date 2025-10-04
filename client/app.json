@@ -1,0 +1,72 @@
+{
+  "expo": {
+    "slug": "patch-up",
+    "name": "patch-up",
+    "owner": "cjblack",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/adaptive-icon.png",
+    "scheme": "patchup",
+    "userInterfaceStyle": "automatic",
+
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourcompany.patchup",
+      "config": { "usesNonExemptEncryption": false },
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "We use your location to show your position on the map.",
+        "NSCameraUsageDescription": "We use your camera for video calls.",
+        "NSMicrophoneUsageDescription": "We use your microphone for calls."
+      }
+    },
+
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#0D0D0D"
+      },
+      "package": "com.yourcompany.patchup",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+
+        "CAMERA",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
+        "WAKE_LOCK",
+        "BLUETOOTH_CONNECT"
+      ]
+    },
+
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#0D0D0D"
+        }
+      ],
+      "expo-secure-store",
+      "@maplibre/maplibre-react-native",
+      "expo-notifications",
+    
+     // 👇 allow HTTP to your LAN API so Axios doesn't throw "Network Error"
+      ["expo-build-properties", { "android": { "usesCleartextTraffic": true } }]
+    ],
+
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "969a417a-4a49-4064-9571-5832b8571c40"
+      },
+      "MAPTILER_KEY": "iNtS1QIPq27RGWxB2TSX",
+      "GEOAPIFY_KEY": "7ce1866e9a854276bcad7b6ca897f1fd",
+      "EXPO_PUBLIC_ORS_KEY": "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImUwNDdmMzMxYzM2ZjQ4MGJiYmQzYzA3NTRkMzBiMzI0IiwiaCI6Im11cm11cjY0In0=",
+
+      "EXPO_PUBLIC_AGORA_APP_ID": "455864e57dcb4d6aa442e853683737e0"
+    }
+  }
+}

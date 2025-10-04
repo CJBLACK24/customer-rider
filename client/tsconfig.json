@@ -1,0 +1,26 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "jsx": "react-native",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    },
+    "types": ["react", "react-native", "expo", "expo-router"],
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["**/*.ts", "**/*.tsx", "components/Push"],
+  "exclude": [
+    "node_modules",
+    "**/node_modules/*",
+    "**/__mocks__/*",
+    "**/__tests__/*",
+    "**/__rsc_tests__/*"
+  ]
+}
