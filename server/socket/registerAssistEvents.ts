@@ -61,27 +61,24 @@ async function ensureDirectConversation(io: SocketIOServer, a: string, b: string
 }
 
 export function registerAssistEvents(io: SocketIOServer, socket: Socket) {
-  // Temp: everyone can watch the operators room
+  /** Allow any client to observe operator room (temporary until roles are added) */
   socket.on("joinOperators", () => {
     socket.join("operators");
   });
 
-  /**
-   * Create request + ack + broadcast.
-   * IMPORTANT: we snapshot the current user profile into the doc.
-   */
+  /** Legacy event (kept): assistRequest  → create request + ack + broadcast */
   socket.on("assistRequest", async (data: any) => {
     try {
       const requester = String((socket.data as any)?.userId || "");
       if (!requester) throw new Error("Unauthorized");
 
       const { vehicle = {}, location = {} } = data || {};
-      const lat = Number(location.lat);
-      const lng = Number(location.lng);
+      const lat = Number(location.lat),
+        lng = Number(location.lng);
 
-      // Read authoritative user profile and snapshot it
+      // Pull the authoritative user profile for snapshot
       const user = await User.findById(requester)
-        .select("name email phone avatar")
+        .select("name avatar email phone")
         .lean();
 
       const doc = await AssistRequest.create({
@@ -99,13 +96,13 @@ export function registerAssistEvents(io: SocketIOServer, socket: Socket) {
         status: "pending",
       });
 
-      // Acknowledge back to the requester
+      // ack back to requester (compat)
       socket.emit("assistRequest", {
         success: true,
         data: { id: String(doc._id) },
       });
 
-      // Broadcast to operators (use snapshot for name)
+      // broadcast to operators with requester's minimal profile + snapshot name
       io.to("operators").emit("assist:created", {
         success: true,
         data: {
@@ -129,14 +126,14 @@ export function registerAssistEvents(io: SocketIOServer, socket: Socket) {
     }
   });
 
-  // Alias kept for future-proofing
+  /** New: assist:create (same as above but future-proof) */
   socket.on("assist:create", async (data: any) => {
     socket.emit("assistRequest", { success: true, msg: "accepted (compat)" });
-    socket.emit("assist:create", { success: true });
-    socket.emit("assistRequest", data);
+    socket.emit("assist:create", { success: true }); // optional mini-ack
+    socket.emit("assistRequest", data); // keep parity; real logic already run in handler above
   });
 
-  // Operator accepts
+  /** Operator accepts a request */
   socket.on("assist:accept", async (data: { id: string }) => {
     try {
       const operatorId = String((socket.data as any)?.userId || "");
@@ -153,17 +150,18 @@ export function registerAssistEvents(io: SocketIOServer, socket: Socket) {
           success: false,
           msg: "Not found",
         });
-      if (req.status !== "pending")
+      if (req.status !== "pending") {
         return socket.emit("assist:accept", {
           success: false,
           msg: "Already processed",
         });
+      }
 
       req.status = "accepted";
       req.assignedTo = operatorId as any;
       await req.save();
 
-      // Notify requester
+      // Notify the requester (customer)
       for (const [sid, s] of io.sockets.sockets) {
         const uid = String((s.data as any)?.userId || "");
         if (uid === String(req.userId)) {
@@ -174,17 +172,21 @@ export function registerAssistEvents(io: SocketIOServer, socket: Socket) {
         }
       }
 
-      // Ensure DM
+      // Ensure a direct conversation and notify both ends
       await ensureDirectConversation(io, String(req.userId), operatorId);
 
+      // ack operator
       socket.emit("assist:accept", { success: true, data: { id } });
     } catch (e) {
       console.error("assist:accept error:", e);
-      socket.emit("assist:accept", { success: false, msg: "Failed to accept" });
+      socket.emit("assist:accept", {
+        success: false,
+        msg: "Failed to accept",
+      });
     }
   });
 
-  // Status pushes
+  /** Optional status updates (complete/cancel) — stubs for future operator app */
   socket.on("assist:status", async (data: { id: string; status: string }) => {
     try {
       const id = String(data?.id || "");
@@ -201,7 +203,10 @@ export function registerAssistEvents(io: SocketIOServer, socket: Socket) {
       for (const [sid, s] of io.sockets.sockets) {
         const uid = String((s.data as any)?.userId || "");
         if (uid === String(req.userId)) {
-          io.to(sid).emit("assist:status", { success: true, data: { id, status } });
+          io.to(sid).emit("assist:status", {
+            success: true,
+            data: { id, status },
+          });
         }
       }
     } catch (e) {

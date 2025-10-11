@@ -16,8 +16,6 @@ const transporter = nodemailer.createTransport({
   port,
   secure: port === 465,
   auth: { user, pass },
-  //logger: true,
-  // debug: true,
 });
 
 transporter.verify((err, success) => {
@@ -25,10 +23,7 @@ transporter.verify((err, success) => {
   else console.log("Mail transporter ready");
 });
 
-/**
- * sendResetEmail(to, pin)
- * Sends a plain‑text email containing just the 6‑digit PIN.
- */
+
 export async function sendResetEmail(to: string, pin: string) {
   try {
     const info = await transporter.sendMail({

@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import connectDB from "./config/db";
 import authRoutes from "./routes/auth.routes";
 import { initializeSocket } from "./socket/socket";
+import assistRoutes from "./routes/assist.routes"; 
 
 dotenv.config({ quiet: true });
 
@@ -22,8 +23,9 @@ app.use(
   })
 );
 
-app.use("/auth", authRoutes);
 
+app.use("/auth", authRoutes);
+app.use("/assist", assistRoutes); 
 app.get("/", (_req, res) => {
   res.send("Server is running");
 });
