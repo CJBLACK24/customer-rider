@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
+// client/(main)/message.tsx
 import { ScrollView, StyleSheet, View, Alert } from "react-native";
 import React, { useCallback, useEffect, useState } from "react";
 import ScreenWrapper from "@/components/ScreenWrapper";

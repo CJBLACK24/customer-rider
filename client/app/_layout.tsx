@@ -1,4 +1,4 @@
-// app/_layout.tsx
+// client/app/_layout.tsx
 import React, { useCallback } from "react";
 import { View } from "react-native";
 import { Stack } from "expo-router";
@@ -6,17 +6,15 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as SplashScreen from "expo-splash-screen";
 import { useFonts } from "expo-font";
 import "react-native-reanimated";
-import "react-native-gesture-handler"; 
-// app/_layout.tsx (or App.tsx)
-
-
-
-import { GestureHandlerRootView } from "react-native-gesture-handler"; // ← keep
+import "react-native-gesture-handler";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AuthProvider } from "@/contexts/authContext";
 import { colors } from "@/constants/theme";
 
-// 🔔 NEW: foreground/bgd notification glue (no UI)
+// 🔔 Registers push token, handles taps, foreground local toasts
 import NotificationBridge from "@/components/NotificationBridge";
+// 🆕 Keeps Activity synced for assist events
+import AssistSocketBridge from "@/components/AssistSocketBridge";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -33,17 +31,13 @@ export default function RootLayout() {
 
   if (!fontsLoaded && !fontError) return null;
 
-
-
   return (
-    // ⬇️ Wrap the whole app
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
           <AuthProvider>
-            {/* 🔔 Registers push token, handles taps, foreground local toasts */}
             <NotificationBridge />
-
+            <AssistSocketBridge />
             <Stack
               screenOptions={{
                 headerShown: false,

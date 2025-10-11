@@ -1,3 +1,4 @@
+// client/constants/map.ts
 import Constants from "expo-constants";
 
 /** Keys from app.json -> expo.extra */
@@ -20,6 +21,7 @@ export const PANAY_MAX_BOUNDS = {
  * ✅ RASTER style (no sprites/glyphs = avoids your timeouts)
  * Source: Geoapify raster tiles (osm-bright).
  */
+
 export const GEOAPIFY_RASTER_STYLE: any = {
   version: 8,
   name: "geoapify-osm-bright-raster",

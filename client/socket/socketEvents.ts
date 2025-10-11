@@ -1,4 +1,3 @@
-// client/socket/socketEvents.ts
 import { getSocket } from "./socket";
 import { ResponseProps } from "@/types";
 
@@ -13,6 +12,7 @@ function wire(event: string, payload: any, off: boolean = false) {
   else socket.emit(event, payload);
 }
 
+/* ===== EXISTING EVENTS (unchanged) ===== */
 export const testSocket = (payload: any, off: boolean = false) =>
   wire("testSocket", payload, off);
 export const updateProfile = (payload: any, off: boolean = false) =>
@@ -31,8 +31,11 @@ export const markAsRead = (payload: string, off: boolean = false) =>
   wire("markAsRead", payload, off);
 export const conversationUpdated = (payload: any, off: boolean = false) =>
   wire("conversationUpdated", payload, off);
+
+/** Kept for backwards-compat (direct emit) */
 export const assistRequest = (payload: any, off: boolean = false) =>
   wire("assistRequest", payload, off);
+
 export const registerPushToken = (
   payload: { token: string },
   off: boolean = false
@@ -40,7 +43,6 @@ export const registerPushToken = (
 export const messageDelivered = (payload: any, off: boolean = false) =>
   wire("messageDelivered", payload, off);
 
-// one-time ack pattern stays the same
 export const deleteConversation = (params: {
   conversationId: string;
   cb?: (res: ResponseProps) => void;
@@ -54,40 +56,76 @@ export const deleteConversation = (params: {
   socket.on("deleteConversation", listener);
   socket.emit("deleteConversation", params.conversationId);
 };
-
-// server -> client broadcast when *any* participant deletes
 export const conversationDeleted = (payload: any, off: boolean = false) =>
   wire("conversationDeleted", payload, off);
 
-/** 👇👇👇 NEW: CALL SIGNALING 👇👇👇 */
+/** ===== CALL SIGNALING (existing) ===== */
 export const callInvite = (payload: {
   conversationId: string;
   channel: string;
   kind?: "video" | "audio";
   from?: { id: string; name?: string; avatar?: string };
 }) => wire("call:invite", payload);
-
 export const onCallIncoming = (cb: (evt: any) => void, off = false) =>
   wire("call:incoming", cb, off);
-
 export const callAccept = (payload: {
   conversationId: string;
   channel: string;
 }) => wire("call:accept", payload);
-
 export const callReject = (payload: {
   conversationId: string;
   channel: string;
 }) => wire("call:reject", payload);
-
 export const callCancel = (payload: {
   conversationId: string;
   channel: string;
 }) => wire("call:cancel", payload);
-
 export const onCallAccepted = (cb: (evt: any) => void, off = false) =>
   wire("call:accepted", cb, off);
 export const onCallRejected = (cb: (evt: any) => void, off = false) =>
   wire("call:rejected", cb, off);
 export const onCallCancelled = (cb: (evt: any) => void, off = false) =>
   wire("call:cancelled", cb, off);
+
+/* ===================== Assist (Customer) ===================== */
+/**
+ * Emits the correct payload for your server:
+ * {
+ *   vehicle: { model, plate, notes },
+ *   location: { lat, lng, address?, accuracy? }
+ * }
+ *
+ * NOTE: The server snapshots the sender's current profile
+ * (customerName/email/phone) into the Assist Request automatically.
+ */
+export const assistCreate = (
+  payload: {
+    vehicle: { model: string; plate: string; notes?: string };
+    location: { lat: number; lng: number; accuracy?: number; address?: string };
+  },
+  cb?: (ack: any) => void
+) => {
+  const socket = getSocket();
+  if (!socket) return;
+
+  if (cb) {
+    const once = (res: any) => {
+      cb(res);
+      socket.off("assistRequest", once);
+    };
+    socket.on("assistRequest", once);
+  }
+
+  // Legacy event used by your server; also emits future-proof alias
+  socket.emit("assistRequest", payload);
+  socket.emit("assist:create", payload);
+};
+
+export const onAssistApproved = (cb: (evt: any) => void, off = false) =>
+  wire("assist:approved", cb, off);
+export const onAssistStatus = (cb: (evt: any) => void, off = false) =>
+  wire("assist:status", cb, off);
+
+export const assistStatus = (payload: any) => wire("assist:status", payload);
+export const assistCancel = (payload: any) => wire("assist:cancel", payload);
+export const assistDetails = (payload: any) => wire("assist:details", payload);

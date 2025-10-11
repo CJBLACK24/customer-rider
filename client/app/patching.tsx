@@ -74,6 +74,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  line: { textAlign: "center", letterSpacing: 0.5 },
-  dot: { color: colors.white, fontSize: 28, fontWeight: "900", lineHeight: 32 },
+  line: { 
+    textAlign: "center",
+    letterSpacing: 0.5 
+    },
+  dot: {
+    color: colors.white,
+    fontSize: 28,
+    fontWeight: "900",
+    lineHeight: 32 
+    },
 });

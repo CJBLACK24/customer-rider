@@ -1,16 +1,17 @@
 // client/app/(main)/profileModal.tsx
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  Alert,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  Alert,
 } from "react-native";
-import React, { useEffect, useMemo, useState } from "react";
 import { colors, spacingX, spacingY } from "@/constants/theme";
-import { scale, verticalScale } from "@/utils/styling";
+import { verticalScale } from "@/utils/styling";
 import ScreenWrapper from "@/components/ScreenWrapper";
 import Header from "@/components/Header";
 import BackButton from "@/components/BackButton";
@@ -29,12 +30,19 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, Controller } from "react-hook-form";
 
+// ✅ local sign-out cleanup (no navigation)
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { disconnectSocket } from "@/socket/socket";
+
+/* ----------------------------- Validation ----------------------------- */
 const profileSchema = z.object({
   name: z
     .string()
     .min(1, { message: "Name is required" })
     .max(50, { message: "Name must be less than 50 characters" })
-    .regex(/^[a-zA-Z\s]+$/, { message: "Name can only contain letters and spaces" }),
+    .regex(/^[a-zA-Z\s]+$/, {
+      message: "Name can only contain letters and spaces",
+    }),
   email: z.string().email({ message: "Please enter a valid email address" }),
   phone: z
     .string()
@@ -46,10 +54,10 @@ const profileSchema = z.object({
   avatar: z.any().optional(),
 });
 type ProfileFormData = z.infer<typeof profileSchema>;
+/* --------------------------------------------------------------------- */
 
 const ProfileModal = () => {
-  const { user, signOut, updateToken } = useAuth();
-  const [loading, setLoading] = useState(false);
+  const { user, updateToken } = useAuth(); // ⛔ don't call signOut here to avoid nav
   const router = useRouter();
 
   const {
@@ -64,6 +72,13 @@ const ProfileModal = () => {
     defaultValues: { name: "", email: "", phone: "", avatar: null },
     mode: "onChange",
   });
+
+  const [loading, setLoading] = useState(false);
+
+  // --- Logout modal states ---
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const formValues = watch();
 
@@ -101,7 +116,7 @@ const ProfileModal = () => {
 
   const onPickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
+      mediaTypes: ["images"] as any,
       allowsEditing: true,
       aspect: [4, 3],
       quality: 0.5,
@@ -111,17 +126,30 @@ const ProfileModal = () => {
     }
   };
 
-  const handleLogout = async () => {
-    router.back();
-    await signOut();
+  // ---- Logout flow per mockups ----
+  const startLogout = () => setShowConfirm(true);
+
+  const doLogout = async () => {
+    setLoggingOut(true);
+    try {
+      // local cleanup only (no route change)
+      await AsyncStorage.removeItem("token");
+      await disconnectSocket();
+      // optional: clear any other persisted prefill state if you use it
+      // await AsyncStorage.removeItem("someKey");
+
+      setShowConfirm(false);
+      setShowSuccess(true); // ✅ immediately show success card
+    } finally {
+      setLoggingOut(false);
+    }
   };
 
-  const showLogoutAlert = () => {
-    Alert.alert("Confirm", "Are you sure you want to Logout?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Logout", onPress: () => handleLogout(), style: "destructive" },
-    ]);
+  const goToLogin = () => {
+    setShowSuccess(false);
+    router.replace("/(auth)/login"); // ✅ navigate only here
   };
+  // ---------------------------------
 
   const onSubmit = async (data: ProfileFormData) => {
     if (!isDirty) {
@@ -154,24 +182,33 @@ const ProfileModal = () => {
   const [phoneFocused, setPhoneFocused] = useState(false);
   const FOCUS_BORDER = "#c0ffcbbb";
 
-  // ====== NEW: Only show the avatar overlay button when "uploading state" ======
-  // Treat "uploading state" as: user has selected a new local image (pending change) OR any form change.
+  // Show pencil over avatar when editing/pending change
   const hasLocalAvatarChange = useMemo(
-    () => !!formValues?.avatar && typeof formValues.avatar === "object" && (formValues.avatar as any)?.uri,
+    () =>
+      !!formValues?.avatar &&
+      typeof formValues.avatar === "object" &&
+      (formValues.avatar as any)?.uri,
     [formValues?.avatar]
   );
   const showAvatarUpdateBtn = (hasLocalAvatarChange || isDirty) && !loading;
-  // ============================================================================
 
   return (
     <ScreenWrapper isModal={true} style={{ paddingTop: 0 }}>
       <View style={styles.container}>
-        <BGProfile headerHeight={130} pointDepth={25} circleDiameter={140} circleOffsetY={-100} zIndex={0} />
+        <BGProfile
+          headerHeight={130}
+          pointDepth={25}
+          circleDiameter={140}
+          circleOffsetY={-100}
+          zIndex={0}
+        />
 
         <Header
           title={"Update Profile "}
           isProfileTitle={true}
-          leftIcon={Platform.OS === "android" && <BackButton color={colors.black} />}
+          leftIcon={
+            Platform.OS === "android" && <BackButton color={colors.black} />
+          }
           style={{ marginVertical: spacingY._15 }}
         />
 
@@ -185,7 +222,6 @@ const ProfileModal = () => {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.avatarContainer}>
-            {/* Avatar: press to open image picker */}
             <TouchableOpacity
               onPress={onPickImage}
               activeOpacity={0.9}
@@ -195,7 +231,6 @@ const ProfileModal = () => {
               <Avatar uri={formValues.avatar as any} size={120} />
             </TouchableOpacity>
 
-            {/* Pencil overlay becomes the UPDATE button — only when in "uploading/editing" state */}
             {showAvatarUpdateBtn && (
               <TouchableOpacity
                 style={styles.editIcon}
@@ -204,23 +239,40 @@ const ProfileModal = () => {
                 accessibilityRole="button"
                 accessibilityLabel="Save profile changes"
               >
-                <Icons.PenIcon size={verticalScale(20)} color={colors.neutral800} />
+                <Icons.PenIcon
+                  size={verticalScale(20)}
+                  color={colors.neutral800}
+                />
               </TouchableOpacity>
             )}
           </View>
 
           <View style={styles.inputContainer}>
-            <View style={{ marginTop: spacingY._20, marginBottom: spacingY._20 }}>
+            <View
+              style={{ marginTop: spacingY._20, marginBottom: spacingY._20 }}
+            >
               <Typo size={20} fontWeight="900" fontFamily="InterLight">
-                <Text style={{ color: "#6EFF87", letterSpacing: 1, fontFamily: "InterLight" }}>
+                <Text
+                  style={{
+                    color: "#6EFF87",
+                    letterSpacing: 1,
+                    fontFamily: "InterLight",
+                  }}
+                >
                   Rider Profile
                 </Text>
-                <Text style={{ color: "#FFFFFF", fontFamily: "InterLight" }}> Detail</Text>
+                <Text style={{ color: "#FFFFFF", fontFamily: "InterLight" }}>
+                  {" "}
+                  Detail
+                </Text>
               </Typo>
             </View>
 
-            {/* NAME with right pencil (unchanged) */}
-            <Typo style={{ paddingLeft: spacingX._10, color: "#FFFFFF" }} fontFamily="InterLight">
+            {/* NAME */}
+            <Typo
+              style={{ paddingLeft: spacingX._10, color: "#FFFFFF" }}
+              fontFamily="InterLight"
+            >
               Name
             </Typo>
             <View style={styles.fieldWrap}>
@@ -230,15 +282,28 @@ const ProfileModal = () => {
                 render={({ field: { onChange, onBlur, value } }) => (
                   <Input
                     value={value}
-                    icon={<Icons.UserIcon size={verticalScale(20)} color="#000000" weight="fill" />}
+                    icon={
+                      <Icons.UserIcon
+                        size={verticalScale(20)}
+                        color="#000000"
+                        weight="fill"
+                      />
+                    }
                     containerStyle={{
-                      borderColor: errors.name ? colors.rose : nameFocused ? FOCUS_BORDER : "#1E2022",
+                      borderColor: errors.name
+                        ? colors.rose
+                        : nameFocused
+                        ? FOCUS_BORDER
+                        : "#1E2022",
                       paddingLeft: spacingX._20,
                       backgroundColor: "#C0FFCB",
                       borderRadius: 180,
                       borderCurve: "continuous",
                     }}
-                    inputStyle={{ color: colors.black, fontFamily: "InterLight" }}
+                    inputStyle={{
+                      color: colors.black,
+                      fontFamily: "InterLight",
+                    }}
                     onChangeText={onChange}
                     onFocus={() => setNameFocused(true)}
                     onBlur={() => {
@@ -253,7 +318,11 @@ const ProfileModal = () => {
                 onPress={handleSubmit(onSubmit)}
                 disabled={loading}
               >
-                <Icons.PenIcon size={verticalScale(18)} color={colors.black} weight="fill" />
+                <Icons.PenIcon
+                  size={verticalScale(18)}
+                  color={colors.black}
+                  weight="fill"
+                />
               </TouchableOpacity>
             </View>
             {errors.name && (
@@ -263,10 +332,13 @@ const ProfileModal = () => {
             )}
           </View>
 
-          {/* PHONE with right pencil (unchanged) */}
+          {/* PHONE */}
           <View style={{ gap: spacingY._20 }}>
             <View style={styles.inputContainer}>
-              <Typo style={{ paddingLeft: spacingX._10, color: "#FFFFFF" }} fontFamily="InterLight">
+              <Typo
+                style={{ paddingLeft: spacingX._10, color: "#FFFFFF" }}
+                fontFamily="InterLight"
+              >
                 Phone
               </Typo>
               <View style={styles.fieldWrap}>
@@ -276,15 +348,28 @@ const ProfileModal = () => {
                   render={({ field: { onChange, onBlur, value } }) => (
                     <Input
                       value={value || ""}
-                      icon={<Icons.PhoneIcon size={verticalScale(20)} color="#000000" weight="fill" />}
+                      icon={
+                        <Icons.PhoneIcon
+                          size={verticalScale(20)}
+                          color="#000000"
+                          weight="fill"
+                        />
+                      }
                       containerStyle={{
-                        borderColor: errors.phone ? colors.rose : phoneFocused ? FOCUS_BORDER : "#1E2022",
+                        borderColor: errors.phone
+                          ? colors.rose
+                          : phoneFocused
+                          ? FOCUS_BORDER
+                          : "#1E2022",
                         paddingLeft: spacingX._20,
                         backgroundColor: "#C0FFCB",
                         borderRadius: 180,
                         borderCurve: "continuous",
                       }}
-                      inputStyle={{ color: colors.black, fontFamily: "InterLight" }}
+                      inputStyle={{
+                        color: colors.black,
+                        fontFamily: "InterLight",
+                      }}
                       onFocus={() => {
                         setScrollLocked(true);
                         setPhoneFocused(true);
@@ -304,7 +389,11 @@ const ProfileModal = () => {
                   onPress={handleSubmit(onSubmit)}
                   disabled={loading}
                 >
-                  <Icons.PenIcon size={verticalScale(18)} color={colors.black} weight="fill" />
+                  <Icons.PenIcon
+                    size={verticalScale(18)}
+                    color={colors.black}
+                    weight="fill"
+                  />
                 </TouchableOpacity>
               </View>
               {errors.phone && (
@@ -317,7 +406,10 @@ const ProfileModal = () => {
 
           {/* EMAIL (read-only) */}
           <View style={styles.inputContainer}>
-            <Typo style={{ paddingLeft: spacingX._10, color: "#FFFFFF" }} fontFamily="InterLight">
+            <Typo
+              style={{ paddingLeft: spacingX._10, color: "#FFFFFF" }}
+              fontFamily="InterLight"
+            >
               Email
             </Typo>
             <Controller
@@ -326,7 +418,13 @@ const ProfileModal = () => {
               render={({ field: { onChange, onBlur, value } }) => (
                 <Input
                   value={value}
-                  icon={<Icons.EnvelopeSimpleIcon size={verticalScale(20)} color="#000000" weight="fill" />}
+                  icon={
+                    <Icons.EnvelopeSimpleIcon
+                      size={verticalScale(20)}
+                      color="#000000"
+                      weight="fill"
+                    />
+                  }
                   containerStyle={{
                     borderColor: errors.email ? colors.rose : "#1E2022",
                     paddingLeft: spacingX._20,
@@ -348,12 +446,22 @@ const ProfileModal = () => {
             )}
           </View>
 
-          {/* LOGOUT centered under email */}
+          {/* LOGOUT button (opens confirm modal) */}
           <View style={styles.logoutWrap}>
-            <Button onPress={showLogoutAlert} style={styles.logoutBtn}>
+            <Button onPress={startLogout} style={styles.logoutBtn}>
               <View style={styles.logoutRow}>
-                <Icons.PowerIcon size={verticalScale(20)} color={colors.white} weight="fill" />
-                <Typo color={colors.white} fontWeight={"700"} size={16} style={{ marginLeft: 8 }} fontFamily="InterLight">
+                <Icons.PowerIcon
+                  size={verticalScale(20)}
+                  color={colors.white}
+                  weight="fill"
+                />
+                <Typo
+                  color={colors.white}
+                  fontWeight={"700"}
+                  size={16}
+                  style={{ marginLeft: 8 }}
+                  fontFamily="InterLight"
+                >
                   Logout
                 </Typo>
               </View>
@@ -362,7 +470,81 @@ const ProfileModal = () => {
         </ScrollView>
       </View>
 
-      {/* Footer placeholder (kept) */}
+      {/* ===== Confirm Modal ===== */}
+      <Modal transparent visible={showConfirm} animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalIconCircle}>
+              <Icons.SignOutIcon size={72} color={colors.black} weight="bold" />
+            </View>
+
+            <Typo
+              size={18}
+              fontWeight="800"
+              style={{ textAlign: "center", marginTop: spacingY._10 }}
+            >
+              You’re about to Logout…
+              {"\n"}Are you sure?
+            </Typo>
+
+            <View style={{ height: spacingY._20 }} />
+
+            <TouchableOpacity
+              activeOpacity={0.9}
+              style={[styles.modalBtn, styles.modalBtnSecondary]}
+              onPress={() => setShowConfirm(false)}
+              disabled={loggingOut}
+            >
+              <Typo fontWeight="800">No, Don’t Log Me Out</Typo>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.9}
+              style={[styles.modalBtn, styles.modalBtnPrimary]}
+              onPress={doLogout}
+              disabled={loggingOut}
+            >
+              <Typo fontWeight="800" color={colors.black}>
+                {loggingOut ? "Logging out…" : "Yes, Log Me Out"}
+              </Typo>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ===== Success Modal (navigate only on button press) ===== */}
+      <Modal transparent visible={showSuccess} animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalIconCircle}>
+              <Icons.CheckIcon size={72} color={colors.black} weight="bold" />
+            </View>
+
+            <Typo
+              size={18}
+              fontWeight="800"
+              style={{ textAlign: "center", marginTop: spacingY._10 }}
+            >
+              You have successfully
+              {"\n"}Logged out
+            </Typo>
+
+            <View style={{ height: spacingY._20 }} />
+
+            <TouchableOpacity
+              activeOpacity={0.9}
+              style={[styles.modalBtn, styles.modalBtnPrimary]}
+              onPress={goToLogin}
+            >
+              <Typo fontWeight="800" color={colors.black}>
+                Return to Login
+              </Typo>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Footer spacer (unchanged) */}
       <View style={styles.footer} />
     </ScreenWrapper>
   );
@@ -438,5 +620,47 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  /* ===== Modal styles to match mockups ===== */
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 22,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: "#C0FFCB",
+    borderRadius: 18,
+    paddingVertical: 22,
+    paddingHorizontal: 18,
+    alignItems: "center",
+  },
+  modalIconCircle: {
+    height: 84,
+    width: 84,
+    borderRadius: 84,
+    backgroundColor: "#A5F4B4",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalBtn: {
+    width: "88%",
+    height: 40,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 10,
+  },
+  modalBtnPrimary: {
+    backgroundColor: "#6EFF87",
+  },
+  modalBtnSecondary: {
+    backgroundColor: "#EAFBEF",
+    borderWidth: 1,
+    borderColor: "#6EFF87",
   },
 });

@@ -5,7 +5,6 @@ import CustomNavBar from "@/components/CustomNavBar";
 
 export default function MainTabsLayout() {
   return (
-    // Backdrop to prevent white flashes
     <View style={{ flex: 1, backgroundColor: "#000" }}>
       <Tabs
         initialRouteName="home"
@@ -14,12 +13,11 @@ export default function MainTabsLayout() {
           headerShown: false,
           lazy: true,
           freezeOnBlur: true,
-          // (Optional) ensure the tab bar itself is dark
-          
         }}
       >
         <Tabs.Screen name="home" options={{ title: "Home" }} />
-        <Tabs.Screen name="message" options={{ title: "Message" }} />
+        <Tabs.Screen name="activity" options={{ title: "Activity" }} />
+        <Tabs.Screen name="message" options={{ title: "Messages" }} />
         <Tabs.Screen name="profileModal" options={{ title: "Profile" }} />
       </Tabs>
     </View>

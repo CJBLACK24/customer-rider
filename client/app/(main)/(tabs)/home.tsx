@@ -1,6 +1,13 @@
 /* eslint-disable @typescript-eslint/array-type */
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { StyleSheet, View, Platform, ToastAndroid, Alert, LogBox } from "react-native";
+import {
+  StyleSheet,
+  View,
+  Platform,
+  ToastAndroid,
+  Alert,
+  LogBox,
+} from "react-native";
 import ScreenWrapper from "@/components/ScreenWrapper";
 import { useAuth } from "@/contexts/authContext";
 import * as Clipboard from "expo-clipboard";
@@ -8,12 +15,13 @@ import Logger from "@maplibre/maplibre-react-native";
 import {
   MapView,
   Camera,
-  UserLocation,
+  // UserLocation,  // ⛔ removed (we'll draw our own avatar marker)
   type CameraRef,
   ShapeSource,
   FillLayer,
   LineLayer,
   SymbolLayer,
+  PointAnnotation, // ✅ use a custom annotation for the avatar
 } from "@maplibre/maplibre-react-native";
 import {
   DEFAULT_ZOOM,
@@ -27,8 +35,16 @@ import LocationHeader from "@/components/LocationHeader";
 import RequestStepper from "@/components/RequestStepper";
 import { useCurrentAddress } from "@/hooks/useCurrentAddress";
 import { BlurView } from "expo-blur";
-import NavBanner from "@/components/NavBanner";
-import { useLiveNavigation } from "@/hooks/useLiveNavigation";
+import RequestStatusOverlay from "@/components/RequestStatusOverlay";
+import { addActivityItem, updateActivityItem } from "@/utils/activityStore";
+import { getSocket } from "@/socket/socket";
+// ⚠️ replaced: import { assistRequest } from "@/socket/socketEvents";
+import {
+  assistCreate,
+  onAssistApproved,
+  onAssistStatus,
+} from "@/socket/socketEvents";
+import Avatar from "@/components/Avatar"; // ✅ reuse your Avatar component
 
 /* ---------- DEV: silence MapLibre spam EARLY (before first render) ---------- */
 if (__DEV__) {
@@ -49,15 +65,23 @@ if (__DEV__) {
           a.includes("Failed to load tile") ||
           a.includes("{TextureViewRend}[Style]"))
     );
-  const __orig = { log: console.log, warn: console.warn, info: console.info, error: console.error };
+  const __orig = {
+    log: console.log,
+    warn: console.warn,
+    info: console.info,
+    error: console.error,
+  };
   // eslint-disable-next-line no-console
   console.log = (...a: any[]) => (shouldSkip(a) ? undefined : __orig.log(...a));
   // eslint-disable-next-line no-console
-  console.warn = (...a: any[]) => (shouldSkip(a) ? undefined : __orig.warn(...a));
+  console.warn = (...a: any[]) =>
+    shouldSkip(a) ? undefined : __orig.warn(...a);
   // eslint-disable-next-line no-console
-  console.info = (...a: any[]) => (shouldSkip(a) ? undefined : __orig.info(...a));
+  console.info = (...a: any[]) =>
+    shouldSkip(a) ? undefined : __orig.info(...a);
   // eslint-disable-next-line no-console
-  console.error = (...a: any[]) => (shouldSkip(a) ? undefined : __orig.error(...a));
+  console.error = (...a: any[]) =>
+    shouldSkip(a) ? undefined : __orig.error(...a);
 }
 /* -------------------------------------------------------------------------- */
 
@@ -74,7 +98,9 @@ const OSM_FALLBACK_RASTER_STYLE: any = {
       maxzoom: 19,
     },
   },
-  layers: [{ id: "osm-tiles", type: "raster", source: "osm", minzoom: 0, maxzoom: 22 }],
+  layers: [
+    { id: "osm-tiles", type: "raster", source: "osm", minzoom: 0, maxzoom: 22 },
+  ],
 };
 // -----------------------------------------------------------------------------
 
@@ -89,8 +115,11 @@ try {
 
 const SHEET_MARGIN_BOTTOM = 110;
 
-const LiquidGlassBackdrop: React.FC<{ opacity?: number }> = ({ opacity = 0.55 }) => {
-  const canLiquid = Platform.OS === "ios" && GlassView && (isLiquidGlassAvailable?.() ?? true);
+const LiquidGlassBackdrop: React.FC<{ opacity?: number }> = ({
+  opacity = 0.55,
+}) => {
+  const canLiquid =
+    Platform.OS === "ios" && GlassView && (isLiquidGlassAvailable?.() ?? true);
   if (canLiquid) {
     return (
       <GlassView
@@ -100,7 +129,14 @@ const LiquidGlassBackdrop: React.FC<{ opacity?: number }> = ({ opacity = 0.55 })
       />
     );
   }
-  return <BlurView pointerEvents="none" tint="dark" intensity={20} style={[StyleSheet.absoluteFill, { opacity }]} />;
+  return (
+    <BlurView
+      pointerEvents="none"
+      tint="dark"
+      intensity={20}
+      style={[StyleSheet.absoluteFill, { opacity }]}
+    />
+  );
 };
 
 const Home = () => {
@@ -118,17 +154,23 @@ const Home = () => {
   const [plateNumber, setPlateNumber] = useState("");
   const [otherInfo, setOtherInfo] = useState("");
 
-  // Route state
-  const [routeGeoJSON, setRouteGeoJSON] = useState<any>(null);
-  const [routeSteps, setRouteSteps] = useState<
-    { instruction: string; distance: number; duration: number; lat?: number; lon?: number }[]
-  >([]);
-
-  // Live navigation controller
-  const { active, progressText, start, stop } = useLiveNavigation({ speak: true, rerouteDistance: 80 });
-
-  // IMPORTANT: start with no style; decide after reachability probe to avoid first-frame errors
+  // Map style after reachability probe
   const [mapStyle, setMapStyle] = useState<any | null>(null);
+
+  // Request status overlay
+  const [overlay, setOverlay] = useState<{
+    visible: boolean;
+    kind: "requesting" | "accepted";
+    caption?: string;
+  }>({
+    visible: false,
+    kind: "requesting",
+    caption: undefined,
+  });
+
+  // local refs to correlate ack/approval
+  const pendingLocalIdRef = useRef<string | null>(null);
+  const serverAssistIdRef = useRef<string | null>(null);
 
   // Try to disable MapLibre bridge logs as well
   useEffect(() => {
@@ -155,51 +197,20 @@ const Home = () => {
       const ok = await verifyGeoapifyReachable();
       setMapStyle(ok ? GEOAPIFY_RASTER_STYLE : OSM_FALLBACK_RASTER_STYLE);
       if (!ok) {
-        if (Platform.OS === "android") ToastAndroid.show("Geoapify unreachable — using OSM fallback", ToastAndroid.LONG);
-        else Alert.alert("Map tiles", "Geoapify unreachable — using OSM fallback");
+        if (Platform.OS === "android")
+          ToastAndroid.show(
+            "Geoapify unreachable — using OSM fallback",
+            ToastAndroid.LONG
+          );
+        else
+          Alert.alert("Map tiles", "Geoapify unreachable — using OSM fallback");
       }
     })();
   }, [verifyGeoapifyReachable]);
 
-  /** Geoapify Routing API (GeoJSON output + instructions) */
-  const fetchRoute = async (origin: [number, number], dest: [number, number]) => {
-    try {
-      const waypoints = `${origin[1]},${origin[0]}|${dest[1]},${dest[0]}`; // lat,lon|lat,lon
-      const url =
-        `https://api.geoapify.com/v1/routing?waypoints=${encodeURIComponent(
-          waypoints
-        )}&mode=drive&details=instruction_details,route_details&format=geojson&apiKey=${GEOAPIFY_KEY}`;
-
-      const res = await fetch(url);
-      const json = await res.json();
-
-      if (json && json.type === "FeatureCollection" && json.features?.length) {
-        setRouteGeoJSON(json);
-
-        const legs = json.features[0]?.properties?.legs || [];
-        const firstLeg = legs[0] || {};
-        const steps = (firstLeg.steps || []).map((s: any) => {
-          const coord = s?.from?.location || s?.to?.location || null; // [lon, lat]
-          return {
-            instruction: s?.instruction?.text || s?.instruction || "Continue",
-            distance: s?.distance || 0,
-            duration: s?.time || s?.duration || 0,
-            lat: coord ? coord[1] : undefined,
-            lon: coord ? coord[0] : undefined,
-          };
-        });
-        setRouteSteps(steps);
-      }
-    } catch (err) {
-      // This stays quiet due to dev filter; still useful in production logs if needed.
-      console.warn("Geoapify route error", err);
-    }
-  };
-
-  // Initial camera + route (once)
+  // Initial camera (once)
   useEffect(() => {
     if (!locating && fix && cameraRef.current && !movedOnceRef.current) {
-      // Instant camera changes (0ms) to reduce intermediate tile churn
       // @ts-ignore
       cameraRef.current.moveTo(fix, 0);
       setTimeout(() => {
@@ -208,31 +219,144 @@ const Home = () => {
       }, 0);
       movedOnceRef.current = true;
       setTimeout(() => setShowAoi(true), 300);
-
-      // Demo: route to Iloilo center
-      fetchRoute([fix[0], fix[1]], ILOILO_CENTER);
     }
   }, [locating, fix]);
 
   const handleCopyAddress = async () => {
     try {
       await Clipboard.setStringAsync(locating ? "Locating…" : address || "");
-      if (Platform.OS === "android") ToastAndroid.show("Location copied", ToastAndroid.SHORT);
+      if (Platform.OS === "android")
+        ToastAndroid.show("Location copied", ToastAndroid.SHORT);
       else Alert.alert("Copied", "Location copied to clipboard");
     } catch {}
   };
 
-  const handleStartNav = () => {
-    if (!routeSteps.length) {
-      if (Platform.OS === "android") ToastAndroid.show("No route yet", ToastAndroid.SHORT);
-      else Alert.alert("Navigation", "No route yet");
+  /** =======================
+   *  REQUEST ASSIST FLOW (FINAL)
+   *  ======================= */
+  const onRequestAssist = async () => {
+    if (!currentUser) {
+      Alert.alert("Login required", "Please sign in first.");
       return;
     }
-    start(routeSteps);
-  };
-  const handleStopNav = () => stop();
+    if (!fix) {
+      Alert.alert("Location", "Waiting for GPS fix. Please try again.");
+      return;
+    }
 
-  // Don’t render MapView until tile host decision is made (prevents the red LogBox pill)
+    // 1) Create a local activity entry
+    const localId = `act_${Date.now()}_${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    pendingLocalIdRef.current = localId;
+
+    await addActivityItem({
+      id: localId,
+      title: "Request assistance",
+      placeName: address || "Unknown location",
+      createdAt: new Date().toISOString(),
+      status: "pending",
+      meta: {
+        vehicleModel,
+        plateNumber,
+        otherInfo,
+        // will be filled after server ack:
+        assistId: null as unknown as string | null,
+      },
+    });
+
+    // 2) Show “requesting…”
+    setOverlay({ visible: true, kind: "requesting" });
+
+    // 3) Emit the correct payload that your server expects
+    const payload = {
+      vehicle: {
+        model: vehicleModel.trim(),
+        plate: plateNumber.trim(),
+        notes: otherInfo.trim(),
+      },
+      location: {
+        lat: fix[1],
+        lng: fix[0],
+        address: address || "",
+      },
+    };
+
+    // 4) Send and capture ack once (will include mongo document id)
+    assistCreate(payload, async (ack) => {
+      if (ack?.success && ack?.data?.id && pendingLocalIdRef.current) {
+        serverAssistIdRef.current = String(ack.data.id);
+        await updateActivityItem(pendingLocalIdRef.current, {
+          meta: {
+            vehicleModel,
+            plateNumber,
+            otherInfo,
+            assistId: serverAssistIdRef.current,
+          },
+        });
+      }
+    });
+
+    // 5) Listen for “approved” (operator accepted)
+    const socket = getSocket();
+    if (!socket) return;
+
+    const onApproved = async (evt: any) => {
+      const srvId = String(evt?.data?.id || "");
+      if (!evt?.success || !srvId) return;
+
+      // Only accept if it matches the last created assist (if known)
+      if (serverAssistIdRef.current && srvId !== serverAssistIdRef.current)
+        return;
+
+      const targetLocalId = pendingLocalIdRef.current;
+      if (targetLocalId) {
+        await updateActivityItem(targetLocalId, { status: "accepted" });
+      }
+
+      setOverlay({
+        visible: true,
+        kind: "accepted",
+        caption:
+          "Please check your Inbox to communicate with your service provider",
+      });
+
+      setTimeout(() => setOverlay((o) => ({ ...o, visible: false })), 1600);
+
+      onAssistApproved(onApproved, true);
+      onAssistStatus(onStatus, true);
+    };
+
+    const onStatus = async (evt: any) => {
+      // Optional: react to completed/cancelled etc.
+      const srvId = String(evt?.data?.id || "");
+      if (!evt?.success || !srvId) return;
+
+      // Map server status -> local store labels
+      const raw = String(evt?.data?.status || "").toLowerCase();
+      const map: Record<string, "done" | "canceled" | "pending" | "accepted"> =
+        {
+          completed: "done",
+          cancelled: "canceled",
+          canceled: "canceled",
+          rejected: "canceled",
+          pending: "pending",
+          accepted: "accepted",
+        };
+      const localStatus = map[raw] || "pending";
+
+      // Try to find the local pending item
+      const targetLocalId = pendingLocalIdRef.current;
+      if (targetLocalId) {
+        await updateActivityItem(targetLocalId, { status: localStatus });
+      }
+    };
+
+    onAssistApproved(onApproved);
+    onAssistStatus(onStatus);
+  };
+
+  // Don’t render MapView until tile host decision is made
   if (!mapStyle) {
     return (
       <ScreenWrapper style={{ paddingTop: 0 }}>
@@ -253,19 +377,43 @@ const Home = () => {
         >
           <Camera
             ref={cameraRef}
-            defaultSettings={{ centerCoordinate: ILOILO_CENTER, zoomLevel: DEFAULT_ZOOM }}
+            defaultSettings={{
+              centerCoordinate: ILOILO_CENTER,
+              zoomLevel: DEFAULT_ZOOM,
+            }}
             maxBounds={PANAY_MAX_BOUNDS}
             followUserLocation={hasLocation}
             followZoomLevel={DEFAULT_ZOOM}
           />
 
-          <UserLocation visible renderMode="native" showsUserHeadingIndicator androidRenderMode="gps" />
+          {/* ⛔ Original arrow marker removed */}
+          {/* <UserLocation visible renderMode="native" showsUserHeadingIndicator androidRenderMode="gps" /> */}
+
+          {/* ✅ Custom user marker with the account avatar */}
+          {!!fix && (
+            <PointAnnotation
+              id="me"
+              coordinate={fix}
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+              <View style={styles.avatarMarker}>
+                {/* Your Avatar already accepts string/require/object uris */}
+                <Avatar uri={(currentUser as any)?.avatar} size={42} />
+              </View>
+            </PointAnnotation>
+          )}
 
           {/* AOI overlay (only if you set a URL) */}
           {showAoi && !!AOI_GEOJSON_URL && (
             <ShapeSource id="aoi-geojson" url={AOI_GEOJSON_URL}>
-              <FillLayer id="aoi-fill" style={{ fillOpacity: 0.08, fillColor: "#000000" }} />
-              <LineLayer id="aoi-line" style={{ lineColor: "#000000", lineWidth: 1.5 }} />
+              <FillLayer
+                id="aoi-fill"
+                style={{ fillOpacity: 0.08, fillColor: "#000000" }}
+              />
+              <LineLayer
+                id="aoi-line"
+                style={{ lineColor: "#000000", lineWidth: 1.5 }}
+              />
               <SymbolLayer
                 id="aoi-labels"
                 style={{
@@ -279,26 +427,18 @@ const Home = () => {
               />
             </ShapeSource>
           )}
-
-          {/* Route line (GeoJSON from Geoapify) */}
-          {routeGeoJSON && (
-            <ShapeSource id="route" shape={routeGeoJSON}>
-              <LineLayer
-                id="route-line"
-                style={{ lineColor: "#00AEEF", lineWidth: 5, lineCap: "round", lineJoin: "round" }}
-              />
-            </ShapeSource>
-          )}
         </MapView>
 
         {/* Frosted backdrop layer */}
         <LiquidGlassBackdrop opacity={0.55} />
 
         {/* Header */}
-        <LocationHeader username={currentUser?.name} address={address} locating={locating} onCopy={handleCopyAddress} />
-
-        {/* Live navigation banner */}
-        <NavBanner active={active} text={progressText} onStart={handleStartNav} onStop={handleStopNav} />
+        <LocationHeader
+          username={currentUser?.name}
+          address={address}
+          locating={locating}
+          onCopy={handleCopyAddress}
+        />
 
         {/* Bottom request sheet */}
         <RequestStepper
@@ -312,7 +452,14 @@ const Home = () => {
           setOtherInfo={setOtherInfo}
           onRecenter={recenter}
           bottomInset={SHEET_MARGIN_BOTTOM}
-          steps={routeSteps}
+          onRequest={onRequestAssist}
+        />
+
+        {/* Status overlays */}
+        <RequestStatusOverlay
+          visible={overlay.visible}
+          kind={overlay.kind}
+          caption={overlay.caption}
         />
       </View>
     </ScreenWrapper>
@@ -323,4 +470,20 @@ export default Home;
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+
+  // Small soft container so the avatar pops on all basemaps
+  avatarMarker: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "white",
+    alignItems: "center",
+    justifyContent: "center",
+    // subtle shadow (Android/iOS)
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
 });

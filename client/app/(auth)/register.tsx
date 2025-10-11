@@ -31,12 +31,15 @@ import PasswordPopover from "@/components/PasswordPopover";
 /* ----------------------------- Form validation ---------------------------- */
 const schema = z
   .object({
-    name: z.string().trim().min(1, "Username is required"),
+    name: z.string().trim().min(1, "Full name is required"),
     email: z
       .string()
       .trim()
       .email("Enter a valid email")
-      .refine((v) => v.toLowerCase().endsWith("@gmail.com"), "Gmail address only"),
+      .refine(
+        (v) => v.toLowerCase().endsWith("@gmail.com"),
+        "Gmail address only"
+      ),
     phone: z
       .string()
       .trim()
@@ -142,14 +145,13 @@ const Register = () => {
         passwordRef.current,
         nameRef.current,
         phoneRef.current,
-        ""
+        "",
       );
 
-      // ⬇️ Save credentials securely so Login can prefill
+      // Save credentials securely so Login can prefill
       await SecureStore.setItemAsync("prefillEmail", emailRef.current);
       await SecureStore.setItemAsync("prefillPassword", passwordRef.current);
 
-      // ⬇️ Go straight to Login
       router.replace("/(auth)/login");
     } catch (err: any) {
       const msg =
@@ -173,7 +175,11 @@ const Register = () => {
           <View style={styles.content}>
             <View style={[styles.form, { paddingBottom: spacingY._20 }]}>
               <View style={{ marginBottom: spacingY._25 }}>
-                <Typo size={35} style={{ textAlign: "center" }} fontFamily="Candal">
+                <Typo
+                  size={35}
+                  style={{ textAlign: "center" }}
+                  fontFamily="Candal"
+                >
                   <Text style={{ color: colors.green }}>patch</Text>
                   <Text style={{ color: colors.white }}> up</Text>
                 </Typo>
@@ -186,14 +192,14 @@ const Register = () => {
                 </Typo>
               </View>
 
-              {/* Name */}
+              {/* Full name */}
               <Controller
                 control={control}
                 name="name"
                 render={({ field: { onChange, onBlur, value } }) => (
                   <>
                     <Input
-                      placeholder="Username"
+                      placeholder="Full name"
                       value={value}
                       onChangeText={(v) => onChange(v)}
                       onFocus={() => {
@@ -243,14 +249,29 @@ const Register = () => {
                       }}
                       icon={
                         phoneFocused ? (
-                          <View style={{ flexDirection: "row", alignItems: "center" }}>
-                            <Text style={{ fontSize: 18 }}>{toFlagEmoji(countryCode)}</Text>
-                            <Text style={{ color: colors.neutral600, marginLeft: 6 }}>
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                            }}
+                          >
+                            <Text style={{ fontSize: 18 }}>
+                              {toFlagEmoji(countryCode)}
+                            </Text>
+                            <Text
+                              style={{
+                                color: colors.neutral600,
+                                marginLeft: 6,
+                              }}
+                            >
                               +{callingCode}
                             </Text>
                           </View>
                         ) : (
-                          <Icons.PhoneCallIcon size={verticalScale(26)} color={colors.neutral600} />
+                          <Icons.PhoneCallIcon
+                            size={verticalScale(26)}
+                            color={colors.neutral600}
+                          />
                         )
                       }
                     />
@@ -285,7 +306,9 @@ const Register = () => {
                       icon={
                         <Icons.EnvelopeIcon
                           size={verticalScale(26)}
-                          color={emailFocused ? colors.green : colors.neutral600}
+                          color={
+                            emailFocused ? colors.green : colors.neutral600
+                          }
                         />
                       }
                     />
@@ -325,7 +348,9 @@ const Register = () => {
                         icon={
                           <Icons.LockIcon
                             size={verticalScale(26)}
-                            color={passwordFocused ? colors.green : colors.neutral600}
+                            color={
+                              passwordFocused ? colors.green : colors.neutral600
+                            }
                           />
                         }
                         containerStyle={styles.inputWithRight}
@@ -338,15 +363,33 @@ const Register = () => {
                         returnKeyType="done"
                       />
 
-                      <View pointerEvents="box-none" style={styles.overlayRight}>
-                        <Pressable style={styles.iconBtn} onPress={generateStrongPassword}>
-                          <Icons.DiceFiveIcon size={20} color={colors.neutral200} />
+                      <View
+                        pointerEvents="box-none"
+                        style={styles.overlayRight}
+                      >
+                        <Pressable
+                          style={styles.iconBtn}
+                          onPress={generateStrongPassword}
+                        >
+                          <Icons.DiceFiveIcon
+                            size={20}
+                            color={colors.neutral200}
+                          />
                         </Pressable>
-                        <Pressable style={styles.iconBtn} onPress={() => setShowPw((p) => !p)}>
+                        <Pressable
+                          style={styles.iconBtn}
+                          onPress={() => setShowPw((p) => !p)}
+                        >
                           {showPw ? (
-                            <Icons.EyeSlashIcon size={22} color={colors.neutral200} />
+                            <Icons.EyeSlashIcon
+                              size={22}
+                              color={colors.neutral200}
+                            />
                           ) : (
-                            <Icons.EyeIcon size={22} color={colors.neutral200} />
+                            <Icons.EyeIcon
+                              size={22}
+                              color={colors.neutral200}
+                            />
                           )}
                         </Pressable>
                       </View>
@@ -372,7 +415,9 @@ const Register = () => {
                 control={control}
                 name="confirmPassword"
                 render={({ field: { onChange, onBlur, value } }) => (
-                  <View style={{ position: "relative", marginTop: spacingY._10 }}>
+                  <View
+                    style={{ position: "relative", marginTop: spacingY._10 }}
+                  >
                     <Input
                       placeholder="Confirm Password"
                       value={value}
@@ -384,21 +429,33 @@ const Register = () => {
                         setActiveField(null);
                       }}
                       icon={
-                        <Icons.LockKeyIcon size={verticalScale(26)} color={colors.neutral600} />
+                        <Icons.LockKeyIcon
+                          size={verticalScale(26)}
+                          color={colors.neutral600}
+                        />
                       }
                     />
 
-                    {activeField === "confirmPassword" && getError("confirmPassword") && (
-                      <Typo color={colors.rose} style={{ marginTop: 6 }} fontFamily="InterLight">
-                        {getError("confirmPassword")}
-                      </Typo>
-                    )}
+                    {activeField === "confirmPassword" &&
+                      getError("confirmPassword") && (
+                        <Typo
+                          color={colors.rose}
+                          style={{ marginTop: 6 }}
+                          fontFamily="InterLight"
+                        >
+                          {getError("confirmPassword")}
+                        </Typo>
+                      )}
                   </View>
                 )}
               />
 
               {apiError && (
-                <Typo color={colors.rose} style={{ marginTop: 8 }} fontFamily="InterLight">
+                <Typo
+                  color={colors.rose}
+                  style={{ marginTop: 8 }}
+                  fontFamily="InterLight"
+                >
                   {apiError}
                 </Typo>
               )}
@@ -436,10 +493,7 @@ const Register = () => {
 export default Register;
 
 const styles = StyleSheet.create({
-  fullBlack: {
-    flex: 1,
-    backgroundColor: colors.black,
-  },
+  fullBlack: { flex: 1, backgroundColor: colors.black },
   container: {
     flex: 1,
     justifyContent: "space-between",
@@ -450,18 +504,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.black,
     paddingHorizontal: spacingX._20,
   },
-  form: {
-    gap: spacingY._15,
-    marginTop: spacingY._20,
-    minHeight: "100%",
-  },
+  form: { gap: spacingY._15, marginTop: spacingY._20, minHeight: "100%" },
   footer: {
     flexDirection: "row",
     justifyContent: "flex-start",
     alignItems: "center",
     gap: 5,
   },
-  // input + overlay
   inputWithRight: { paddingRight: 88 },
   inputWrap: { position: "relative" },
   overlayRight: {
